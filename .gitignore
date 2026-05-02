@@ -1,0 +1,10 @@
+Manifest.toml
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+/docs/build/
+/tmp/
+/.julia/
+*.act
+*.bak
+.DS_Store
