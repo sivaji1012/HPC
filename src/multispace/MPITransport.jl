@@ -114,8 +114,8 @@ Call in the peer's main loop to process incoming queries without blocking.
 """
 function mpi_poll_traverse!() :: Union{Nothing, Tuple{Int32, Vector{UInt8}}}
     _MPI_INITIALIZED[] || return nothing
-    status = MPI.Iprobe(_MPI_COMM[]; source=MPI.ANY_SOURCE, tag=Int(TRAVERSE_TAG))
-    status === nothing && return nothing
+    ismsg, status = MPI.Iprobe(MPI.ANY_SOURCE, Int(TRAVERSE_TAG), _MPI_COMM[], MPI.Status)
+    ismsg || return nothing
     src   = Int32(MPI.Get_source(status))
     count = MPI.Get_count(status, UInt8)
     buf   = Vector{UInt8}(undef, count)

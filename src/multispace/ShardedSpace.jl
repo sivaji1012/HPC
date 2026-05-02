@@ -121,11 +121,11 @@ function sharded_flush!(ss::ShardedSpace) :: Int
     mpi_active() || return 0
     count = 0
     while true
-        status = MPI.Iprobe(_MPI_COMM[]; source=MPI.ANY_SOURCE, tag=Int(SHARD_ATOM_TAG))
-        status === nothing && break
-        src   = MPI.Get_source(status)
+        ismsg, status = MPI.Iprobe(MPI.ANY_SOURCE, Int(SHARD_ATOM_TAG), _MPI_COMM[], MPI.Status)
+        ismsg || break
+        src    = MPI.Get_source(status)
         nbytes = MPI.Get_count(status, UInt8)
-        buf   = Vector{UInt8}(undef, nbytes)
+        buf    = Vector{UInt8}(undef, nbytes)
         MPI.Recv!(buf, _MPI_COMM[]; source=src, tag=Int(SHARD_ATOM_TAG))
         space_add_all_sexpr!(ss.local_shard, String(buf))
         count += 1
@@ -179,22 +179,22 @@ end
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 function _local_query(s::Space, pattern_str::AbstractString) :: Vector{String}
-    results = String[]
-    nodes   = hpc_parse(pattern_str)
-    isempty(nodes) && return results
-    pat = only(nodes)
-    pat_str = hpc_sprint_sexpr(pat)
-    # Build a one-shot exec rule to collect matches
-    prog  = "(exec 0 (, $pat_str) (, (__sq_hit__ \$__v__)))"
-    s_tmp = new_space()
-    space_add_all_sexpr!(s_tmp, space_dump_all_sexpr(s))
-    space_add_all_sexpr!(s_tmp, prog)
-    space_metta_calculus!(s_tmp, typemax(Int))
-    dump  = space_dump_all_sexpr(s_tmp)
-    for line in split(dump, "\n")
-        startswith(line, "(__sq_hit__") && push!(results, line)
+    # Use functor-prefix matching on the dump — fast, no exec rule needed
+    # Extracts functor from pattern "(edge $x $y)" → match lines starting "(edge "
+    dump = space_dump_all_sexpr(s)
+    stripped = strip(pattern_str)
+    if !startswith(stripped, "(")
+        # bare symbol — exact match
+        return filter(l -> strip(l) == stripped, split(dump, "\n"; keepempty=false))
     end
-    results
+    m = match(r"^\(\s*(\S+)", stripped)
+    m === nothing && return String[]
+    functor  = m.captures[1]
+    startswith(functor, "\$") && return split(dump, "\n"; keepempty=false)  # var head = all
+    prefix = "($functor "
+    exact  = "($functor)"
+    filter(l -> startswith(l, prefix) || l == exact,
+           split(dump, "\n"; keepempty=false))
 end
 
 # ── Export ────────────────────────────────────────────────────────────────────
